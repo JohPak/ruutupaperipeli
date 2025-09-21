@@ -235,6 +235,9 @@ function handleGridClick(clientX, clientY){
   // if this placement doesn't form any 5-in-a-row and the player doesn't
   // have (or isn't using) a bonus second-try, reject the placement
   if (!founds || !founds.length){
+    // only allow a provisional first placement if the player has bonus points
+    // and is not already in a bonus second-try; placement should be rejected
+    // if it wouldn't create any new (previously unscored) 5-in-a-row.
     if (!(bonus > 0 && !awaitingBonusSecond)){
       // not allowed
       drawFullGrid({cell:40,dot:6});
@@ -263,20 +266,24 @@ function handleGridClick(clientX, clientY){
       accepted.push(f);
     }
     if (accepted.length){
-      // award one point per distinct non-overlapping line
-      score += accepted.length;
-      // award a bonus point if a single placement creates 2 or more lines
-      if (accepted.length >= 2) bonus += 1;
-      // push each distinct scored line
-    for (const f of accepted) {
-      if (!f.seg || f.seg.length !== 5) continue;
-      const key = segmentKey(f.seg);
-      if (!scoredLines.some(s=>s.key === key)) scoredLines.push({seg: f.seg, dir: f.dir, key});
-    }
-      // update HUD and redraw
-      updateHud();
-      drawFullGrid({cell:40,dot:6});
-      return;
+      // Only count segments that are actually new (not already recorded).
+      const newAccepted = accepted.filter(f => f && f.seg && f.seg.length === 5 && !scoredLines.some(s => s.key === f.key));
+      if (newAccepted.length > 0){
+        // award one point per distinct new non-overlapping line
+        score += newAccepted.length;
+        // award a bonus point if a single placement creates 2 or more new lines
+        if (newAccepted.length >= 2) bonus += 1;
+        // push each distinct scored line
+        for (const f of newAccepted) {
+          const key = segmentKey(f.seg);
+          if (!scoredLines.some(s=>s.key === key)) scoredLines.push({seg: f.seg, dir: f.dir, key});
+        }
+        // update HUD and redraw
+        updateHud();
+        drawFullGrid({cell:40,dot:6});
+        return;
+      }
+      // All candidate lines were duplicates of already-scored lines → treat as no-five
     }
     // if all candidate lines were overlapping, treat as no-five (fallthrough)
   }
@@ -288,17 +295,26 @@ function handleGridClick(clientX, clientY){
     const f2 = findAllFivesAt(col,row,40);
     const any = (f1 && f1.length) || (f2 && f2.length);
     if (any){
-  const toScore = (f2 && f2.length) ? f2 : f1;
-  // filter to exact-5 segments and non-duplicates
-  const final = toScore.filter(f => f.seg && f.seg.length === 5 && !scoredLines.some(s=>s.key === segmentKey(f.seg)));
-  const lines = final.length;
-  score += lines;
-  if (lines >= 2) bonus += 1;
-  for (const f of final){ const key = segmentKey(f.seg); scoredLines.push({seg: f.seg, dir: f.dir, key}); }
-      awaitingBonusSecond=false; firstPlacement=null; updateHud(); drawFullGrid({cell:40,dot:6}); return;
+      const toScore = (f2 && f2.length) ? f2 : f1;
+      // filter to exact-5 segments and non-duplicates (i.e., actually new)
+      const final = toScore.filter(f => f && f.seg && f.seg.length === 5 && !scoredLines.some(s=>s.key === segmentKey(f.seg)));
+      if (final.length > 0){
+        const lines = final.length;
+        score += lines;
+        if (lines >= 2) bonus += 1;
+        for (const f of final){ const key = segmentKey(f.seg); scoredLines.push({seg: f.seg, dir: f.dir, key}); }
+        awaitingBonusSecond=false; firstPlacement=null; updateHud(); drawFullGrid({cell:40,dot:6}); return;
+      }
+      // otherwise, none of the candidate lines are new -> fail the bonus attempt
     }
-    // failed: remove both and return bonus
-    removeStoneAt(firstPlacement.col, firstPlacement.row,40); removeStoneAt(col,row,40); bonus +=1; awaitingBonusSecond=false; firstPlacement=null; drawFullGrid({cell:40,dot:6}); return;
+    // failed: remove provisional stones and return bonus
+    removeStoneAt(firstPlacement.col, firstPlacement.row,40);
+    removeStoneAt(col,row,40);
+    bonus +=1;
+    awaitingBonusSecond=false;
+    firstPlacement=null;
+    drawFullGrid({cell:40,dot:6});
+    return;
   }
   // not allowed
   removeStoneAt(col,row,40); drawFullGrid({cell:40,dot:6});
