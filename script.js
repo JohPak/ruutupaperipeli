@@ -108,6 +108,8 @@ let awaitingBonusSecond = false;
 let firstPlacement = null; // {col,row}
 const scoredLines = [];
 
+function segmentKey(seg){ return seg.map(p=>p.join(',')).join('|'); }
+
 function isOccupied(col,row,cell=40){
   const key = (col*cell) + ',' + (row*cell);
   return marked.has(key);
@@ -258,7 +260,11 @@ function handleGridClick(clientX, clientY){
       // award a bonus point if a single placement creates 2 or more lines
       if (accepted.length >= 2) bonus += 1;
       // push each distinct scored line
-    for (const f of accepted) scoredLines.push({seg: f.seg, dir: f.dir});
+    for (const f of accepted) {
+      if (!f.seg || f.seg.length !== 5) continue;
+      const key = segmentKey(f.seg);
+      if (!scoredLines.some(s=>s.key === key)) scoredLines.push({seg: f.seg, dir: f.dir, key});
+    }
       // update HUD and redraw
       updateHud();
       drawFullGrid({cell:40,dot:6});
@@ -274,12 +280,13 @@ function handleGridClick(clientX, clientY){
     const f2 = findAllFivesAt(col,row,40);
     const any = (f1 && f1.length) || (f2 && f2.length);
     if (any){
-      const toScore = (f2 && f2.length) ? f2 : f1;
-      // add points for all lines found
-      const lines = toScore.length;
-      score += lines;
-      if (lines >= 2) bonus += 1;
-  for (const f of toScore) scoredLines.push({seg: f.seg, dir: f.dir});
+  const toScore = (f2 && f2.length) ? f2 : f1;
+  // filter to exact-5 segments and non-duplicates
+  const final = toScore.filter(f => f.seg && f.seg.length === 5 && !scoredLines.some(s=>s.key === segmentKey(f.seg)));
+  const lines = final.length;
+  score += lines;
+  if (lines >= 2) bonus += 1;
+  for (const f of final){ const key = segmentKey(f.seg); scoredLines.push({seg: f.seg, dir: f.dir, key}); }
       awaitingBonusSecond=false; firstPlacement=null; updateHud(); drawFullGrid({cell:40,dot:6}); return;
     }
     // failed: remove both and return bonus
