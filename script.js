@@ -16,6 +16,8 @@ function resizeToFullViewport() {
 const marked = new Set();
 let hover = null; // {x,y} in CSS pixels for preview (not used for line preview)
 let previewSegments = null; // {seg, dir} when a hover would create 5-in-a-row
+let previewDot = null; // {col,row,type} type = 'win'|'bonus'
+let previewHover = null; // {col,row} last hovered grid cell (for preview dot)
 
 // helpers: convert stored gx/gy (col*cell) to CSS pixel center
 function gridToCssX(gx){ return gx + 0.5; }
@@ -68,6 +70,23 @@ function drawFullGrid({cell=40, dot=6} = {}){
   if (scoredLines.length) drawScoredLines(cell);
   // draw preview (if available) inside the same scaled context so coordinates match
   if (previewSegments) drawPreviewLine(cell);
+  // draw preview dot (green for winning placement, orange for bonus)
+  if (previewDot) drawPreviewDot(cell);
+
+  // draw preview dot (green for winning placement, orange if bonus would be used)
+  if (previewHover){
+    const {col,row} = previewHover;
+    // don't show if occupied
+    if (!isOccupied(col,row,cell)){
+      const cx = gridToCssX(col*cell);
+      const cy = gridToCssY(row*cell);
+      if (previewSegments && previewSegments.length){
+        drawPreviewDot(cx, cy, 'rgba(0,160,60,0.9)', 6); // green
+      } else if (bonus > 0 && !awaitingBonusSecond){
+        drawPreviewDot(cx, cy, 'rgba(255,140,0,0.9)', 6); // orange
+      }
+    }
+  }
 
   ctx.restore();
 }
@@ -185,6 +204,15 @@ function drawScoredLines(cell=40){
   ctx.restore();
 }
 
+function drawPreviewDot(cx, cy, color='rgba(0,160,60,0.9)', size=6){
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, size/2, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function handleGridClick(clientX, clientY){
   const rect = canvas.getBoundingClientRect();
   const x = clientX - rect.left; const y = clientY - rect.top;
@@ -266,6 +294,10 @@ function updateHud(){
   const b = document.getElementById('bonus-val');
   if (s) s.textContent = String(score);
   if (b) b.textContent = String(bonus);
+  const bonusWrap = document.getElementById('bonus');
+  if (bonusWrap){
+    if (bonus > 0) bonusWrap.classList.add('bonus-available'); else bonusWrap.classList.remove('bonus-available');
+  }
 }
 
 // draw a hover preview square at given intersection
@@ -285,19 +317,48 @@ function drawPreviewLine(cell=40){
   ctx.restore();
 }
 
+function drawPreviewDot(cell=40){
+  if (!previewDot) return;
+  const {col,row,type} = previewDot;
+  const gx = col * cell; const gy = row * cell;
+  const cx = gridToCssX(gx), cy = gridToCssY(gy);
+  ctx.save();
+  if (type === 'win') ctx.fillStyle = 'rgba(0,160,0,0.9)';
+  else ctx.fillStyle = 'rgba(255,140,0,0.95)';
+  const r = Math.max(4, Math.round(cell * 0.12));
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+  // if bonus, draw small label to the right
+  if (type === 'bonus'){
+    ctx.fillStyle = 'rgba(0,0,0,0.9)';
+    ctx.font = '12px sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('bonuspiste', cx + r + 6, cy);
+  }
+  ctx.restore();
+}
+
 function clearPreview(){ previewSegments = null; }
+function clearAllPreview(){ previewSegments = null; previewDot = null; }
 
 // simulate placing at client coordinates to see if it would produce a five-in-a-row
 function setPreviewAt(clientX, clientY, cell=40){
   const rect = canvas.getBoundingClientRect();
   const x = clientX - rect.left; const y = clientY - rect.top;
   const col = Math.round(x / cell); const row = Math.round(y / cell);
+  // store hover cell for preview dot
+  previewHover = {col, row};
   if (isOccupied(col,row,cell)) { clearPreview(); return; }
   // temporarily place and test
   addStoneAt(col,row,cell);
   const founds = findAllFivesAt(col,row,cell);
   removeStoneAt(col,row,cell);
-  if (!founds || !founds.length) { previewSegments = null; return; }
+  if (!founds || !founds.length) {
+    // no winning lines: previewSegments null; but previewDot may be orange if bonus would be used
+    previewSegments = null;
+    // if player has bonus available and we are not currently in awaitingBonusSecond, show bonus preview
+    if (bonus > 0 && !awaitingBonusSecond){ previewDot = {col,row,type:'bonus'}; } else { previewDot = null; }
+    return;
+  }
   // filter out overlaps with existing scored lines and among themselves
   const placedPoint = [col,row];
   const accepted = [];
@@ -310,7 +371,12 @@ function setPreviewAt(clientX, clientY, cell=40){
     accepted.push(f);
   }
   previewSegments = accepted.length ? accepted : null;
+  // winning preview dot
+  previewDot = previewSegments ? {col,row,type:'win'} : null;
 }
+
+// clear hover preview state
+function clearPreview(){ previewSegments = null; previewHover = null; }
 
 function updateCoordsPanel(){
   // coords panel removed; function left as no-op
@@ -350,6 +416,8 @@ window.addEventListener('load', () => {
     // redraw grid which now also draws the preview (inside scaled context)
     drawFullGrid({cell:40, dot:6});
   });
+  canvas.addEventListener('mouseleave', () => { clearAllPreview(); drawFullGrid({cell:40,dot:6}); });
+  canvas.addEventListener('mouseleave', () => { clearPreview(); drawFullGrid({cell:40,dot:6}); });
   // touch handler (single touch)
   canvas.addEventListener('touchstart', (ev) => {
     if (ev.touches && ev.touches.length) {
