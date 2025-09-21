@@ -62,6 +62,21 @@ function drawFullGrid({cell=40, dot=6} = {}){
     const [gx, gy] = key.split(',').map(Number);
     const cx = gridToCssX(gx);
     const cy = gridToCssY(gy);
+    // if we're in a provisional bonus state and this is the firstPlacement,
+    // draw it orange until it becomes part of a scored line
+    let isProvisional = false;
+    if (awaitingBonusSecond && firstPlacement){
+      const fpKey = (firstPlacement.col*cell) + ',' + (firstPlacement.row*cell);
+      if (fpKey === key) isProvisional = true;
+    }
+    if (isProvisional){
+      ctx.fillStyle = 'rgba(255,140,0,0.95)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(4, Math.round(cell * 0.12)), 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      continue;
+    }
     ctx.fillRect(Math.round(cx - arm/2), Math.round(cy - half), Math.round(arm), Math.round(dot));
     ctx.fillRect(Math.round(cx - half), Math.round(cy - arm/2), Math.round(dot), Math.round(arm));
   }
@@ -395,8 +410,8 @@ function setPreviewAt(clientX, clientY, cell=40){
     if (!founds || !founds.length) {
     // no winning lines: previewSegments null; but previewDot may be orange if bonus would be used
     previewSegments = null;
-    // show bonus preview when player has bonus points or is in a bonus second attempt
-    if (bonus > 0 || awaitingBonusSecond){ previewDot = {col,row,type:'bonus'}; } else { previewDot = null; }
+  // show bonus preview only when the player actually has bonus points left
+  if (bonus > 0){ previewDot = {col,row,type:'bonus'}; } else { previewDot = null; }
     return;
   }
   // filter out overlaps with existing scored lines and among themselves
