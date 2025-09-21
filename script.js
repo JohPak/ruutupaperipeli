@@ -142,6 +142,32 @@ function findAllFivesAt(col,row,cell=40){
   return results;
 }
 
+// return true if two segments share any intersection other than allowedPoint
+function segmentsOverlapExcept(segA, segB, allowedPoint){
+  // legacy signature preserved for callers that don't provide dirs
+  // new signature: segmentsOverlapExcept(segA, segB, allowedPoint, dirA, dirB)
+  const args = Array.from(arguments);
+  const dirA = args[3] || null;
+  const dirB = args[4] || null;
+  const allowedKey = allowedPoint ? (allowedPoint[0]+','+allowedPoint[1]) : null;
+  const setA = new Set(segA.map(p=>p.join(',')));
+  for (const p of segB){
+    const key = p.join(',');
+    if (setA.has(key)){
+      if (allowedKey && key === allowedKey) continue;
+      // if both directions are present and differ, overlapping is allowed
+      if (dirA && dirB){
+        if (dirA[0] !== dirB[0] || dirA[1] !== dirB[1]){
+          // different directions → allowed to touch/overlap
+          continue;
+        }
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
 function drawScoredLines(cell=40){
   if (!scoredLines.length) return;
   // Assumes drawing happens inside the same scaled context (CSS pixels)
@@ -164,21 +190,53 @@ function handleGridClick(clientX, clientY){
   const x = clientX - rect.left; const y = clientY - rect.top;
   const col = Math.round(x / 40); const row = Math.round(y / 40);
   if (isOccupied(col,row,40)) return;
+  // simulate placement first (do not mutate state permanently yet)
+  addStoneAt(col,row,40);
+  const founds = findAllFivesAt(col,row,40);
+  removeStoneAt(col,row,40);
+  // if this placement doesn't form any 5-in-a-row and the player doesn't
+  // have (or isn't using) a bonus second-try, reject the placement
+  if (!founds || !founds.length){
+    if (!(bonus > 0 && !awaitingBonusSecond)){
+      // not allowed
+      drawFullGrid({cell:40,dot:6});
+      return;
+    }
+    // otherwise proceed and consume bonus to allow first (provisional) placement
+  }
+
+  // permanent placement
   addStoneAt(col,row,40);
   drawFullGrid({cell:40,dot:6});
   // check immediate fives (multiple lines possible)
-  const founds = findAllFivesAt(col,row,40);
   if (founds && founds.length){
-    // award one point per distinct line
-    score += founds.length;
-    // award a bonus point if a single placement creates 2 or more lines
-    if (founds.length >= 2) bonus += 1;
-    // push each distinct scored line
-    for (const f of founds) scoredLines.push({seg: f.seg});
-    // update HUD and redraw
-    updateHud();
-    drawFullGrid({cell:40,dot:6});
-    return;
+    // filter out any candidate that would overlap existing scored lines
+    const placedPoint = [col, row];
+    const accepted = [];
+    for (const f of founds){
+      let bad = false;
+      for (const s of scoredLines){
+        if (segmentsOverlapExcept(f.seg, s.seg, placedPoint, f.dir, s.dir)) { bad = true; break; }
+      }
+      if (bad) continue;
+      // also ensure no overlap with already accepted new lines (except placed point)
+  for (const a of accepted){ if (segmentsOverlapExcept(f.seg, a.seg, placedPoint, f.dir, a.dir)) { bad = true; break; } }
+      if (bad) continue;
+      accepted.push(f);
+    }
+    if (accepted.length){
+      // award one point per distinct non-overlapping line
+      score += accepted.length;
+      // award a bonus point if a single placement creates 2 or more lines
+      if (accepted.length >= 2) bonus += 1;
+      // push each distinct scored line
+    for (const f of accepted) scoredLines.push({seg: f.seg, dir: f.dir});
+      // update HUD and redraw
+      updateHud();
+      drawFullGrid({cell:40,dot:6});
+      return;
+    }
+    // if all candidate lines were overlapping, treat as no-five (fallthrough)
   }
   // no five
   if (bonus > 0 && !awaitingBonusSecond){ awaitingBonusSecond = true; firstPlacement={col,row}; bonus -=1; return; }
@@ -193,7 +251,7 @@ function handleGridClick(clientX, clientY){
       const lines = toScore.length;
       score += lines;
       if (lines >= 2) bonus += 1;
-      for (const f of toScore) scoredLines.push({seg: f.seg});
+  for (const f of toScore) scoredLines.push({seg: f.seg, dir: f.dir});
       awaitingBonusSecond=false; firstPlacement=null; updateHud(); drawFullGrid({cell:40,dot:6}); return;
     }
     // failed: remove both and return bonus
@@ -213,15 +271,17 @@ function updateHud(){
 // draw a hover preview square at given intersection
 // draw a preview line (80% opacity) when a hover-placement would create a 5-in-a-row
 function drawPreviewLine(cell=40){
-  if (!previewSegments) return;
+  if (!previewSegments || !previewSegments.length) return;
   ctx.save();
   ctx.strokeStyle = 'rgba(138,43,226,0.8)'; // purple at 80% opacity
   ctx.lineWidth = 2;
   ctx.lineCap = 'butt';
-  const first = previewSegments.seg[0], last = previewSegments.seg[previewSegments.seg.length-1];
-  const x1 = gridToCssX(first[0]*cell), y1 = gridToCssY(first[1]*cell);
-  const x2 = gridToCssX(last[0]*cell), y2 = gridToCssY(last[1]*cell);
-  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  for (const p of previewSegments){
+    const first = p.seg[0], last = p.seg[p.seg.length-1];
+    const x1 = gridToCssX(first[0]*cell), y1 = gridToCssY(first[1]*cell);
+    const x2 = gridToCssX(last[0]*cell), y2 = gridToCssY(last[1]*cell);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -235,9 +295,21 @@ function setPreviewAt(clientX, clientY, cell=40){
   if (isOccupied(col,row,cell)) { clearPreview(); return; }
   // temporarily place and test
   addStoneAt(col,row,cell);
-  const found = findFiveAt(col,row,cell);
+  const founds = findAllFivesAt(col,row,cell);
   removeStoneAt(col,row,cell);
-  if (found) previewSegments = found; else previewSegments = null;
+  if (!founds || !founds.length) { previewSegments = null; return; }
+  // filter out overlaps with existing scored lines and among themselves
+  const placedPoint = [col,row];
+  const accepted = [];
+  for (const f of founds){
+    let bad = false;
+  for (const s of scoredLines){ if (segmentsOverlapExcept(f.seg, s.seg, placedPoint, f.dir, s.dir)) { bad = true; break; } }
+    if (bad) continue;
+  for (const a of accepted){ if (segmentsOverlapExcept(f.seg, a.seg, placedPoint, f.dir, a.dir)) { bad = true; break; } }
+    if (bad) continue;
+    accepted.push(f);
+  }
+  previewSegments = accepted.length ? accepted : null;
 }
 
 function updateCoordsPanel(){
