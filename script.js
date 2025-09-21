@@ -288,7 +288,14 @@ function handleGridClick(clientX, clientY){
     // if all candidate lines were overlapping, treat as no-five (fallthrough)
   }
   // no five
-  if (bonus > 0 && !awaitingBonusSecond){ awaitingBonusSecond = true; firstPlacement={col,row}; bonus -=1; return; }
+  if (bonus > 0 && !awaitingBonusSecond){
+    awaitingBonusSecond = true;
+    firstPlacement={col,row};
+    bonus -=1;
+    updateHud();
+    drawFullGrid({cell:40,dot:6});
+    return;
+  }
   if (awaitingBonusSecond){
     // second placement
     const f1 = findAllFivesAt(firstPlacement.col, firstPlacement.row,40);
@@ -307,14 +314,15 @@ function handleGridClick(clientX, clientY){
       }
       // otherwise, none of the candidate lines are new -> fail the bonus attempt
     }
-    // failed: remove provisional stones and return bonus
-    removeStoneAt(firstPlacement.col, firstPlacement.row,40);
-    removeStoneAt(col,row,40);
-    bonus +=1;
-    awaitingBonusSecond=false;
-    firstPlacement=null;
-    drawFullGrid({cell:40,dot:6});
-    return;
+  // failed: remove provisional stones and return bonus
+  removeStoneAt(firstPlacement.col, firstPlacement.row,40);
+  removeStoneAt(col,row,40);
+  bonus +=1;
+  awaitingBonusSecond=false;
+  firstPlacement=null;
+  updateHud();
+  drawFullGrid({cell:40,dot:6});
+  return;
   }
   // not allowed
   removeStoneAt(col,row,40); drawFullGrid({cell:40,dot:6});
