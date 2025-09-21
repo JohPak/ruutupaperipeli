@@ -115,6 +115,13 @@ function isOccupied(col,row,cell=40){
   return marked.has(key);
 }
 
+function isInsideGrid(col,row,cell=40){
+  const rect = canvas.getBoundingClientRect();
+  const maxCol = Math.floor(rect.width / cell);
+  const maxRow = Math.floor(rect.height / cell);
+  return col >= 0 && row >= 0 && col <= maxCol && row <= maxRow;
+}
+
 function addStoneAt(col,row,cell=40){
   const key = (col*cell) + ',' + (row*cell);
   marked.add(key);
@@ -219,6 +226,7 @@ function handleGridClick(clientX, clientY){
   const rect = canvas.getBoundingClientRect();
   const x = clientX - rect.left; const y = clientY - rect.top;
   const col = Math.round(x / 40); const row = Math.round(y / 40);
+  if (!isInsideGrid(col,row,40)) return;
   if (isOccupied(col,row,40)) return;
   // simulate placement first (do not mutate state permanently yet)
   addStoneAt(col,row,40);
@@ -303,7 +311,7 @@ function updateHud(){
   if (b) b.textContent = String(bonus);
   const bonusWrap = document.getElementById('bonus');
   if (bonusWrap){
-    if (bonus > 0) bonusWrap.classList.add('bonus-available'); else bonusWrap.classList.remove('bonus-available');
+  if (bonus > 0 || awaitingBonusSecond) bonusWrap.classList.add('bonus-available'); else bonusWrap.classList.remove('bonus-available');
   }
 }
 
@@ -354,16 +362,17 @@ function setPreviewAt(clientX, clientY, cell=40){
   const col = Math.round(x / cell); const row = Math.round(y / cell);
   // store hover cell for preview dot
   previewHover = {col, row};
+  if (!isInsideGrid(col,row,cell)){ clearAllPreview(); return; }
   if (isOccupied(col,row,cell)) { clearPreview(); return; }
   // temporarily place and test
   addStoneAt(col,row,cell);
   const founds = findAllFivesAt(col,row,cell);
   removeStoneAt(col,row,cell);
-  if (!founds || !founds.length) {
+    if (!founds || !founds.length) {
     // no winning lines: previewSegments null; but previewDot may be orange if bonus would be used
     previewSegments = null;
-    // if player has bonus available and we are not currently in awaitingBonusSecond, show bonus preview
-    if (bonus > 0 && !awaitingBonusSecond){ previewDot = {col,row,type:'bonus'}; } else { previewDot = null; }
+    // show bonus preview when player has bonus points or is in a bonus second attempt
+    if (bonus > 0 || awaitingBonusSecond){ previewDot = {col,row,type:'bonus'}; } else { previewDot = null; }
     return;
   }
   // filter out overlaps with existing scored lines and among themselves
