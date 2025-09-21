@@ -14,7 +14,8 @@ function resizeToFullViewport() {
 
 // state: set of marked intersections stored as string keys "x,y"
 const marked = new Set();
-let hover = null; // {x,y} in CSS pixels for preview
+let hover = null; // {x,y} in CSS pixels for preview (not used for line preview)
+let previewSegments = null; // {seg, dir} when a hover would create 5-in-a-row
 
 function drawFullGrid({cell=40, dot=6} = {}){
   resizeToFullViewport();
@@ -46,15 +47,25 @@ function drawFullGrid({cell=40, dot=6} = {}){
 
   // coordinate labels removed per user request
 
+  // helper: convert grid index or stored gx (col*cell) to css pixel center
+  function gridToCssX(gx){ return gx + 0.5; }
+  function gridToCssY(gy){ return gy + 0.5; }
   // draw marked dots only from state
   ctx.fillStyle = '#000';
   const half = dot / 2;
   const arm = Math.max(1, Math.round(dot));
   for (const key of marked) {
     const [gx, gy] = key.split(',').map(Number);
-    ctx.fillRect(Math.round(gx - arm/2), Math.round(gy - half), Math.round(arm), Math.round(dot));
-    ctx.fillRect(Math.round(gx - half), Math.round(gy - arm/2), Math.round(dot), Math.round(arm));
+    const cx = gridToCssX(gx);
+    const cy = gridToCssY(gy);
+    ctx.fillRect(Math.round(cx - arm/2), Math.round(cy - half), Math.round(arm), Math.round(dot));
+    ctx.fillRect(Math.round(cx - half), Math.round(cy - arm/2), Math.round(dot), Math.round(arm));
   }
+
+  // draw any persistent scored lines (thin, centered on intersections)
+  if (scoredLines.length) drawScoredLines(cell);
+  // draw preview (if available) inside the same scaled context so coordinates match
+  if (previewSegments) drawPreviewLine(cell);
 
   ctx.restore();
 }
@@ -69,28 +80,114 @@ function nearestIntersection(clientX, clientY, cell=40){
   return {x: ix, y: iy};
 }
 
-function toggleMarkAt(clientX, clientY, cell=40){
-  const {x,y} = nearestIntersection(clientX, clientY, cell);
-  const key = x + ',' + y;
-  if (marked.has(key)) marked.delete(key);
-  else marked.add(key);
-  drawFullGrid({cell, dot:6});
-  updateCoordsPanel();
+// --- Game state & helpers ---
+let score = 0;
+let bonus = 0;
+let awaitingBonusSecond = false;
+let firstPlacement = null; // {col,row}
+const scoredLines = [];
+
+function isOccupied(col,row,cell=40){
+  const key = (col*cell) + ',' + (row*cell);
+  return marked.has(key);
+}
+
+function addStoneAt(col,row,cell=40){
+  const key = (col*cell) + ',' + (row*cell);
+  marked.add(key);
+}
+
+function removeStoneAt(col,row,cell=40){
+  const key = (col*cell) + ',' + (row*cell);
+  marked.delete(key);
+}
+
+function findFiveAt(col,row,cell=40){
+  const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+  for (const [dx,dy] of dirs){
+    const seq = [[col,row]];
+    for (let k=1;k<10;k++){ const c = col + dx*k, r = row + dy*k; if (isOccupied(c,r,cell)) seq.push([c,r]); else break; }
+    for (let k=1;k<10;k++){ const c = col - dx*k, r = row - dy*k; if (isOccupied(c,r,cell)) seq.unshift([c,r]); else break; }
+    if (seq.length >= 5){
+      for (let i=0;i+5<=seq.length;i++){
+        const seg = seq.slice(i,i+5);
+        if (seg.some(p=>p[0]===col && p[1]===row)) return {seg,dir:[dx,dy]};
+      }
+    }
+  }
+  return null;
+}
+
+function drawScoredLines(cell=40){
+  if (!scoredLines.length) return;
+  // Assumes drawing happens inside the same scaled context (CSS pixels)
+  ctx.save();
+  ctx.strokeStyle = 'purple';
+  ctx.lineWidth = 2; // thin line
+  ctx.lineCap = 'butt';
+  const nudge = 0.5;
+  for (const s of scoredLines){
+    const first = s.seg[0], last = s.seg[s.seg.length-1];
+    const x1 = gridToCssX(first[0]*cell), y1 = gridToCssY(first[1]*cell);
+    const x2 = gridToCssX(last[0]*cell), y2 = gridToCssY(last[1]*cell);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function handleGridClick(clientX, clientY){
+  const rect = canvas.getBoundingClientRect();
+  const x = clientX - rect.left; const y = clientY - rect.top;
+  const col = Math.round(x / 40); const row = Math.round(y / 40);
+  if (isOccupied(col,row,40)) return;
+  addStoneAt(col,row,40);
+  drawFullGrid({cell:40,dot:6});
+  // check immediate five
+  const found = findFiveAt(col,row,40);
+  if (found){ score += 1; bonus += 1; scoredLines.push({seg: found.seg}); drawFullGrid({cell:40,dot:6}); return; }
+  // no five
+  if (bonus > 0 && !awaitingBonusSecond){ awaitingBonusSecond = true; firstPlacement={col,row}; bonus -=1; return; }
+  if (awaitingBonusSecond){
+    // second placement
+    const f1 = findFiveAt(firstPlacement.col, firstPlacement.row,40);
+    const f2 = findFiveAt(col,row,40);
+    const any = f1 || f2;
+    if (any){ const toScore = f2 || f1; score +=1; bonus +=1; scoredLines.push({seg: toScore.seg}); awaitingBonusSecond=false; firstPlacement=null; drawFullGrid({cell:40,dot:6}); return; }
+    // failed: remove both and return bonus
+    removeStoneAt(firstPlacement.col, firstPlacement.row,40); removeStoneAt(col,row,40); bonus +=1; awaitingBonusSecond=false; firstPlacement=null; drawFullGrid({cell:40,dot:6}); return;
+  }
+  // not allowed
+  removeStoneAt(col,row,40); drawFullGrid({cell:40,dot:6});
 }
 
 // draw a hover preview square at given intersection
-function drawHoverPreview(cell=40, dot=6){
-  if (!hover) return;
-  const ctxSave = ctx.getImageData ? null : null; // placeholder to show we preserve state
-  const half = dot / 2;
-  const arm = Math.max(1, Math.round(dot));
+// draw a preview line (80% opacity) when a hover-placement would create a 5-in-a-row
+function drawPreviewLine(cell=40){
+  if (!previewSegments) return;
   ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.25)';
-  const gx = hover.x;
-  const gy = hover.y;
-  ctx.fillRect(Math.round(gx - arm/2), Math.round(gy - half), Math.round(arm), Math.round(dot));
-  ctx.fillRect(Math.round(gx - half), Math.round(gy - arm/2), Math.round(dot), Math.round(arm));
+  ctx.strokeStyle = 'rgba(138,43,226,0.8)'; // purple at 80% opacity
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'butt';
+  const first = previewSegments.seg[0], last = previewSegments.seg[previewSegments.seg.length-1];
+  const x1 = gridToCssX(first[0]*cell), y1 = gridToCssY(first[1]*cell);
+  const x2 = gridToCssX(last[0]*cell), y2 = gridToCssY(last[1]*cell);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
   ctx.restore();
+}
+
+function clearPreview(){ previewSegments = null; }
+
+// simulate placing at client coordinates to see if it would produce a five-in-a-row
+function setPreviewAt(clientX, clientY, cell=40){
+  const rect = canvas.getBoundingClientRect();
+  const x = clientX - rect.left; const y = clientY - rect.top;
+  const col = Math.round(x / cell); const row = Math.round(y / cell);
+  if (isOccupied(col,row,cell)) { clearPreview(); return; }
+  // temporarily place and test
+  addStoneAt(col,row,cell);
+  const found = findFiveAt(col,row,cell);
+  removeStoneAt(col,row,cell);
+  if (found) previewSegments = found; else previewSegments = null;
 }
 
 function updateCoordsPanel(){
@@ -122,17 +219,13 @@ window.addEventListener('load', () => {
     '14,10','15,10','16,10','17,10','17,11','17,12','17,13','18,13','19,13','20,13','20,14','20,15','20,16','19,16','18,16','17,16','17,17','17,18','17,19','16,19','15,19','14,19','14,18','14,17','14,16','13,16','12,16','11,16','11,15','11,14','11,13','12,13','13,13','14,13','14,12','14,11'
   ];
   applyCoordsList(userCoords, {cell:40});
-  // click handler
-  canvas.addEventListener('click', (ev) => {
-    toggleMarkAt(ev.clientX, ev.clientY, 40);
-  });
+  // click handler -> game logic
+  canvas.addEventListener('click', (ev) => { handleGridClick(ev.clientX, ev.clientY); });
   // mousemove preview
   canvas.addEventListener('mousemove', (ev) => {
-    const p = nearestIntersection(ev.clientX, ev.clientY, 40);
-    hover = p;
-    // redraw grid and then overlay preview
+    setPreviewAt(ev.clientX, ev.clientY, 40);
+    // redraw grid which now also draws the preview (inside scaled context)
     drawFullGrid({cell:40, dot:6});
-    drawHoverPreview(40,6);
   });
   // touch handler (single touch)
   canvas.addEventListener('touchstart', (ev) => {
