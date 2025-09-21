@@ -17,15 +17,20 @@ const marked = new Set();
 let hover = null; // {x,y} in CSS pixels for preview (not used for line preview)
 let previewSegments = null; // {seg, dir} when a hover would create 5-in-a-row
 
+// helpers: convert stored gx/gy (col*cell) to CSS pixel center
+function gridToCssX(gx){ return gx + 0.5; }
+function gridToCssY(gy){ return gy + 0.5; }
+
 function drawFullGrid({cell=40, dot=6} = {}){
   resizeToFullViewport();
   const dpr = window.devicePixelRatio || 1;
   ctx.save();
   ctx.scale(dpr, dpr);
+  // CSS pixel viewport size
   const vw = Math.floor(canvas.width / dpr);
   const vh = Math.floor(canvas.height / dpr);
-  // clear
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // clear in CSS pixels (since we scaled the context)
+  ctx.clearRect(0,0,vw,vh);
   // background
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0,0,vw,vh);
@@ -47,9 +52,6 @@ function drawFullGrid({cell=40, dot=6} = {}){
 
   // coordinate labels removed per user request
 
-  // helper: convert grid index or stored gx (col*cell) to css pixel center
-  function gridToCssX(gx){ return gx + 0.5; }
-  function gridToCssY(gy){ return gy + 0.5; }
   // draw marked dots only from state
   ctx.fillStyle = '#000';
   const half = dot / 2;
@@ -118,6 +120,28 @@ function findFiveAt(col,row,cell=40){
   return null;
 }
 
+// find all distinct 5-length segments that include the placed point
+function findAllFivesAt(col,row,cell=40){
+  const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+  const results = [];
+  for (const [dx,dy] of dirs){
+    const seq = [[col,row]];
+    for (let k=1;k<10;k++){ const c = col + dx*k, r = row + dy*k; if (isOccupied(c,r,cell)) seq.push([c,r]); else break; }
+    for (let k=1;k<10;k++){ const c = col - dx*k, r = row - dy*k; if (isOccupied(c,r,cell)) seq.unshift([c,r]); else break; }
+    if (seq.length >= 5){
+      for (let i=0;i+5<=seq.length;i++){
+        const seg = seq.slice(i,i+5);
+        if (seg.some(p=>p[0]===col && p[1]===row)){
+          // normalize seg to string key to avoid duplicates
+          const key = seg.map(p=>p.join(',')).join('|');
+          if (!results.some(r=>r.key===key)) results.push({seg,dir:[dx,dy],key});
+        }
+      }
+    }
+  }
+  return results;
+}
+
 function drawScoredLines(cell=40){
   if (!scoredLines.length) return;
   // Assumes drawing happens inside the same scaled context (CSS pixels)
@@ -142,22 +166,48 @@ function handleGridClick(clientX, clientY){
   if (isOccupied(col,row,40)) return;
   addStoneAt(col,row,40);
   drawFullGrid({cell:40,dot:6});
-  // check immediate five
-  const found = findFiveAt(col,row,40);
-  if (found){ score += 1; bonus += 1; scoredLines.push({seg: found.seg}); drawFullGrid({cell:40,dot:6}); return; }
+  // check immediate fives (multiple lines possible)
+  const founds = findAllFivesAt(col,row,40);
+  if (founds && founds.length){
+    // award one point per distinct line
+    score += founds.length;
+    // award a bonus point if a single placement creates 2 or more lines
+    if (founds.length >= 2) bonus += 1;
+    // push each distinct scored line
+    for (const f of founds) scoredLines.push({seg: f.seg});
+    // update HUD and redraw
+    updateHud();
+    drawFullGrid({cell:40,dot:6});
+    return;
+  }
   // no five
   if (bonus > 0 && !awaitingBonusSecond){ awaitingBonusSecond = true; firstPlacement={col,row}; bonus -=1; return; }
   if (awaitingBonusSecond){
     // second placement
-    const f1 = findFiveAt(firstPlacement.col, firstPlacement.row,40);
-    const f2 = findFiveAt(col,row,40);
-    const any = f1 || f2;
-    if (any){ const toScore = f2 || f1; score +=1; bonus +=1; scoredLines.push({seg: toScore.seg}); awaitingBonusSecond=false; firstPlacement=null; drawFullGrid({cell:40,dot:6}); return; }
+    const f1 = findAllFivesAt(firstPlacement.col, firstPlacement.row,40);
+    const f2 = findAllFivesAt(col,row,40);
+    const any = (f1 && f1.length) || (f2 && f2.length);
+    if (any){
+      const toScore = (f2 && f2.length) ? f2 : f1;
+      // add points for all lines found
+      const lines = toScore.length;
+      score += lines;
+      if (lines >= 2) bonus += 1;
+      for (const f of toScore) scoredLines.push({seg: f.seg});
+      awaitingBonusSecond=false; firstPlacement=null; updateHud(); drawFullGrid({cell:40,dot:6}); return;
+    }
     // failed: remove both and return bonus
     removeStoneAt(firstPlacement.col, firstPlacement.row,40); removeStoneAt(col,row,40); bonus +=1; awaitingBonusSecond=false; firstPlacement=null; drawFullGrid({cell:40,dot:6}); return;
   }
   // not allowed
   removeStoneAt(col,row,40); drawFullGrid({cell:40,dot:6});
+}
+
+function updateHud(){
+  const s = document.getElementById('score-val');
+  const b = document.getElementById('bonus-val');
+  if (s) s.textContent = String(score);
+  if (b) b.textContent = String(bonus);
 }
 
 // draw a hover preview square at given intersection
@@ -219,6 +269,7 @@ window.addEventListener('load', () => {
     '14,10','15,10','16,10','17,10','17,11','17,12','17,13','18,13','19,13','20,13','20,14','20,15','20,16','19,16','18,16','17,16','17,17','17,18','17,19','16,19','15,19','14,19','14,18','14,17','14,16','13,16','12,16','11,16','11,15','11,14','11,13','12,13','13,13','14,13','14,12','14,11'
   ];
   applyCoordsList(userCoords, {cell:40});
+  updateHud();
   // click handler -> game logic
   canvas.addEventListener('click', (ev) => { handleGridClick(ev.clientX, ev.clientY); });
   // mousemove preview
