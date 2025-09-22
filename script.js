@@ -293,6 +293,9 @@ function handleGridClick(clientX, clientY){
           const key = segmentKey(f.seg);
           if (!scoredLines.some(s=>s.key === key)) scoredLines.push({seg: f.seg, dir: f.dir, key});
         }
+        // if we were in a provisional bonus state, clear it so the provisional
+        // orange stone is rendered as a normal stone immediately
+        if (awaitingBonusSecond){ awaitingBonusSecond = false; firstPlacement = null; }
         // update HUD and redraw
         updateHud();
         drawFullGrid({cell:40,dot:6});
@@ -325,7 +328,9 @@ function handleGridClick(clientX, clientY){
         score += lines;
         if (lines >= 2) bonus += 1;
         for (const f of final){ const key = segmentKey(f.seg); scoredLines.push({seg: f.seg, dir: f.dir, key}); }
-        awaitingBonusSecond=false; firstPlacement=null; updateHud(); drawFullGrid({cell:40,dot:6}); return;
+        // clear provisional bonus state so the provisional orange dot is replaced
+        awaitingBonusSecond=false; firstPlacement=null;
+        updateHud(); drawFullGrid({cell:40,dot:6}); return;
       }
       // otherwise, none of the candidate lines are new -> fail the bonus attempt
     }
