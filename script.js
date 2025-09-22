@@ -123,6 +123,15 @@ let awaitingBonusSecond = false;
 let firstPlacement = null; // {col,row}
 const scoredLines = [];
 
+// generate a bright rainbow color (HSL) string
+function randomRainbowColor(){
+  const h = Math.floor(Math.random() * 360);
+  const s = 90 + Math.floor(Math.random()*10); // 90-99%
+  const l = 50 + Math.floor(Math.random()*6); // 50-55%
+    const palette = ['#66C5CC','#F6CF71','#F89C74','#DCB0F2','#87C55F','#9EB9F3','#FE88B1','#C9DB74','#8BE0A4','#B497E7','#B3B3B3'];
+    return palette[Math.floor(Math.random() * palette.length)];
+}
+
 function segmentKey(seg){ return seg.map(p=>p.join(',')).join('|'); }
 
 function isOccupied(col,row,cell=40){
@@ -220,10 +229,13 @@ function drawScoredLines(cell=40){
   ctx.lineCap = 'butt';
   const nudge = 0.5;
   for (const s of scoredLines){
-    const first = s.seg[0], last = s.seg[s.seg.length-1];
-    const x1 = gridToCssX(first[0]*cell), y1 = gridToCssY(first[1]*cell);
-    const x2 = gridToCssX(last[0]*cell), y2 = gridToCssY(last[1]*cell);
-    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  const first = s.seg[0], last = s.seg[s.seg.length-1];
+  const x1 = gridToCssX(first[0]*cell), y1 = gridToCssY(first[1]*cell);
+  const x2 = gridToCssX(last[0]*cell), y2 = gridToCssY(last[1]*cell);
+  // ensure existing scored lines get a color if they were created before color support
+  if (!s.color) s.color = randomRainbowColor();
+  ctx.strokeStyle = s.color;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
   }
   ctx.restore();
 }
@@ -291,7 +303,7 @@ function handleGridClick(clientX, clientY){
         // push each distinct scored line
         for (const f of newAccepted) {
           const key = segmentKey(f.seg);
-          if (!scoredLines.some(s=>s.key === key)) scoredLines.push({seg: f.seg, dir: f.dir, key});
+          if (!scoredLines.some(s=>s.key === key)) scoredLines.push({seg: f.seg, dir: f.dir, key, color: randomRainbowColor()});
         }
         // if we were in a provisional bonus state, clear it so the provisional
         // orange stone is rendered as a normal stone immediately
@@ -327,7 +339,7 @@ function handleGridClick(clientX, clientY){
         const lines = final.length;
         score += lines;
         if (lines >= 2) bonus += 1;
-        for (const f of final){ const key = segmentKey(f.seg); scoredLines.push({seg: f.seg, dir: f.dir, key}); }
+  for (const f of final){ const key = segmentKey(f.seg); scoredLines.push({seg: f.seg, dir: f.dir, key, color: randomRainbowColor()}); }
         // clear provisional bonus state so the provisional orange dot is replaced
         awaitingBonusSecond=false; firstPlacement=null;
         updateHud(); drawFullGrid({cell:40,dot:6}); return;
@@ -364,13 +376,15 @@ function updateHud(){
 function drawPreviewLine(cell=40){
   if (!previewSegments || !previewSegments.length) return;
   ctx.save();
-  ctx.strokeStyle = 'rgba(138,43,226,0.8)'; // purple at 80% opacity
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'butt';
   ctx.lineWidth = 2;
   ctx.lineCap = 'butt';
   for (const p of previewSegments){
     const first = p.seg[0], last = p.seg[p.seg.length-1];
     const x1 = gridToCssX(first[0]*cell), y1 = gridToCssY(first[1]*cell);
     const x2 = gridToCssX(last[0]*cell), y2 = gridToCssY(last[1]*cell);
+    ctx.strokeStyle = p.color || 'rgba(138,43,226,0.8)';
     ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
   }
   ctx.restore();
@@ -428,7 +442,9 @@ function setPreviewAt(clientX, clientY, cell=40){
     if (bad) continue;
   for (const a of accepted){ if (segmentsOverlapExcept(f.seg, a.seg, placedPoint, f.dir, a.dir)) { bad = true; break; } }
     if (bad) continue;
-    accepted.push(f);
+    // clone and attach a preview color so each preview segment can be colored
+    const copy = { seg: f.seg, dir: f.dir, key: f.key, color: randomRainbowColor() };
+    accepted.push(copy);
   }
   previewSegments = accepted.length ? accepted : null;
   // winning preview dot
