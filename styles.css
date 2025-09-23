@@ -1,0 +1,22 @@
+/* styles.css */
+html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial}
+html,body{height:100%;margin:0}
+canvas#paper{position:fixed;left:0;top:0;width:100vw;height:100vh;display:block}
+
+#hud{position:fixed;left:12px;top:12px;background:rgba(255,255,255,0.9);padding:8px 10px;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.12);font-size:14px}
+#hud div{margin:0 0 4px}
+#hud span{font-weight:700}
+#possible {color:#333;font-size:13px}
+/* small bonus indicator */
+#bonus.bonus-available::before{content:'';display:inline-block;width:10px;height:10px;margin-right:8px;border-radius:50%;background:orange;vertical-align:middle}
+
+/* Game over modal */
+#game-over{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:40}
+#game-over.hidden{display:none}
+#game-over .go-inner{background:#fff;padding:20px;border-radius:8px;max-width:360px;width:90%;text-align:center}
+#game-over h2{margin:0 0 8px}
+#game-over ol{text-align:left;padding-left:20px}
+#go-restart{margin-top:12px;padding:8px 12px;border-radius:6px;border:0;background:#66C5CC;color:#000}
+
+/* simple responsive tweaks */
+@media(max-width:600px){.controls{flex-direction:column;align-items:flex-start}}

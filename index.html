@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ruutupaperipeli</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+  <canvas id="paper" aria-label="Ruutupaperi"></canvas>
+  <div id="hud" aria-hidden="false">
+    <div id="score">Pisteet: <span id="score-val">0</span></div>
+    <div id="bonus">Bonus: <span id="bonus-val">0</span></div>
+  <div id="possible">Mahdolliset viivat: <span id="possible-val">0</span></div>
+  </div>
+  <div id="game-over" class="hidden" role="dialog" aria-modal="true">
+    <div class="go-inner">
+      <h2>Peli loppui</h2>
+      <p id="final-score">Pisteesi: 0</p>
+      <div id="highscores">
+        <h3>Highscores</h3>
+        <ol id="highlist"></ol>
+      </div>
+      <button id="go-restart">Aloita uusi peli</button>
+    </div>
+  </div>
+    <script src="script.js"></script>
+  </body>
+</html>
