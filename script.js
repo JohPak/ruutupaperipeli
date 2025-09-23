@@ -93,17 +93,9 @@ function drawFullGrid({cell=40, dot=6} = {}){
     const [col, row] = key.split(',').map(Number);
     const cx = gridToCssX(col);
     const cy = gridToCssY(row);
-    // if we're in a provisional bonus state and this is the firstPlacement,
-    // draw it orange until it becomes part of a scored line
-    let isProvisional = false;
-    if (awaitingBonusSecond && firstPlacement){
-      const fpKey = (firstPlacement.col*cell) + ',' + (firstPlacement.row*cell);
-      if (fpKey === key) isProvisional = true;
-    }
-    if (isProvisional){
-      ctx.fillStyle = 'rgba(255,140,0,0.95)';
-      ctx.beginPath(); ctx.arc(cx, cy, Math.max(4, Math.round(cs * 0.12)), 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#000'; continue;
-    }
+  // if this marked point is a provisional bonus placement, draw it orange
+  const isProvisional = provisionalPlacements.includes(key);
+  if (isProvisional){ ctx.fillStyle = 'rgba(255,140,0,0.95)'; ctx.beginPath(); ctx.arc(cx, cy, Math.max(4, Math.round(cs * 0.12)), 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#000'; continue; }
   // draw small anti-aliased filled circle for marker (crisp at small scales)
   const r = Math.max(2, Math.min(6, Math.round(cs * 0.08)));
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
@@ -122,15 +114,15 @@ function drawFullGrid({cell=40, dot=6} = {}){
     if (!isOccupied(col,row)){
       const cx = gridToCssX(col);
       const cy = gridToCssY(row);
-      if (previewSegments && previewSegments.length){ drawPreviewDot(cx, cy, 'rgba(0,160,60,0.9)', Math.max(4, cs*0.12)); }
-      else if (bonus > 0 && !awaitingBonusSecond){ drawPreviewDot(cx, cy, 'rgba(255,140,0,0.9)', Math.max(4, cs*0.12)); }
+  if (previewSegments && previewSegments.length){ drawPreviewDot(cx, cy, 'rgba(0,160,60,0.9)', Math.max(4, cs*0.12)); }
+  else if (bonus > 0){ drawPreviewDot(cx, cy, 'rgba(255,140,0,0.9)', Math.max(4, cs*0.12)); }
     }
   }
 
   // draw bonus indicator near cursor when appropriate
-  if (bonus > 0 && !awaitingBonusSecond){
+  if (bonus > 0){
     // only show when hovering over empty intersection and no winning preview
-    if (previewHover && !isOccupied(previewHover.col, previewHover.row) && !(previewSegments && previewSegments.length)){
+  if (previewHover && !isOccupied(previewHover.col, previewHover.row) && !(previewSegments && previewSegments.length)){
       // convert lastCursor client coords to CSS canvas coords
       const rect = canvas.getBoundingClientRect();
       const cx = lastCursor.x - rect.left + 12; // slight offset to right
@@ -154,8 +146,8 @@ function nearestIntersection(clientX, clientY){
 // --- Game state & helpers ---
 let score = 0;
 let bonus = 0;
-let awaitingBonusSecond = false;
-let firstPlacement = null; // {col,row}
+// allow multiple provisional bonus placements (keys: 'col,row')
+let provisionalPlacements = [];
 const scoredLines = [];
 
 // generate a bright rainbow color (HSL) string
@@ -288,21 +280,20 @@ function handleGridClick(clientX, clientY){
   addStoneAt(col,row);
   const founds = findAllFivesAt(col,row);
   removeStoneAt(col,row);
-  // if this placement doesn't form any 5-in-a-row and the player doesn't
-  // have (or isn't using) a bonus second-try, reject the placement
+  // if this placement doesn't form any 5-in-a-row, allow provisional placement when bonus available
   if (!founds || !founds.length){
-    // only allow a provisional first placement if the player has bonus points
-    // and is not already in a bonus second-try; placement should be rejected
-    // if it wouldn't create any new (previously unscored) 5-in-a-row.
-    if (!(bonus > 0 && !awaitingBonusSecond)){
-      // not allowed
+    if (!(bonus > 0)){
       drawFullGrid({cell:40,dot:6});
       return;
     }
-    // otherwise proceed and consume bonus to allow first (provisional) placement
+    // consume one bonus, record provisional placement and persist the stone
+    addStoneAt(col,row);
+    provisionalPlacements.push(keyFromColRow(col,row));
+    bonus -= 1;
+    updateHud(); drawFullGrid({cell:40,dot:6}); return;
   }
 
-  // permanent placement
+  // placement produced one or more 5-in-a-row segments -> treat as permanent placement
   addStoneAt(col,row);
   drawFullGrid();
   // check immediate fives (multiple lines possible)
@@ -334,9 +325,14 @@ function handleGridClick(clientX, clientY){
           const key = segmentKey(f.seg);
           if (!scoredLines.some(s=>s.key === key)) scoredLines.push({seg: f.seg, dir: f.dir, key, color: randomRainbowColor()});
         }
-        // if we were in a provisional bonus state, clear it so the provisional
-        // orange stone is rendered as a normal stone immediately
-        if (awaitingBonusSecond){ awaitingBonusSecond = false; firstPlacement = null; }
+        // remove any provisional placement flags for stones that became part of scored lines
+        for (const f of newAccepted){
+          for (const p of f.seg){
+            const pk = keyFromColRow(p[0], p[1]);
+            const idx = provisionalPlacements.indexOf(pk);
+            if (idx !== -1) provisionalPlacements.splice(idx,1);
+          }
+        }
         // update HUD and redraw
         updateHud();
         drawFullGrid({cell:40,dot:6});
@@ -346,45 +342,8 @@ function handleGridClick(clientX, clientY){
     }
     // if all candidate lines were overlapping, treat as no-five (fallthrough)
   }
-  // no five
-  if (bonus > 0 && !awaitingBonusSecond){
-    awaitingBonusSecond = true;
-    firstPlacement={col,row};
-    bonus -=1;
-    updateHud();
-    drawFullGrid({cell:40,dot:6});
-    return;
-  }
-  if (awaitingBonusSecond){
-    // second placement
-  const f1 = findAllFivesAt(firstPlacement.col, firstPlacement.row);
-  const f2 = findAllFivesAt(col,row);
-    const any = (f1 && f1.length) || (f2 && f2.length);
-    if (any){
-      const toScore = (f2 && f2.length) ? f2 : f1;
-      // filter to exact-5 segments and non-duplicates (i.e., actually new)
-      const final = toScore.filter(f => f && f.seg && f.seg.length === 5 && !scoredLines.some(s=>s.key === segmentKey(f.seg)));
-      if (final.length > 0){
-        const lines = final.length;
-        score += lines;
-        if (lines >= 2) bonus += 1;
-  for (const f of final){ const key = segmentKey(f.seg); scoredLines.push({seg: f.seg, dir: f.dir, key, color: randomRainbowColor()}); }
-        // clear provisional bonus state so the provisional orange dot is replaced
-        awaitingBonusSecond=false; firstPlacement=null;
-        updateHud(); drawFullGrid({cell:40,dot:6}); return;
-      }
-      // otherwise, none of the candidate lines are new -> fail the bonus attempt
-    }
-  // failed: remove provisional stones and return bonus
-  removeStoneAt(firstPlacement.col, firstPlacement.row);
-  removeStoneAt(col,row);
-  bonus +=1;
-  awaitingBonusSecond=false;
-  firstPlacement=null;
-  updateHud();
-  drawFullGrid({cell:40,dot:6});
-  return;
-  }
+  // No special provisional second-placement flow exists: provisional placements were handled earlier
+  // After scoring, normal play continues
   // not allowed
   removeStoneAt(col,row); drawFullGrid();
 }
@@ -443,7 +402,7 @@ function updateHud(){
   if (p) p.textContent = String(countPossibleLines());
   const bonusWrap = document.getElementById('bonus');
   if (bonusWrap){
-  if (bonus > 0 || awaitingBonusSecond) bonusWrap.classList.add('bonus-available'); else bonusWrap.classList.remove('bonus-available');
+    if (bonus > 0 || provisionalPlacements.length > 0) bonusWrap.classList.add('bonus-available'); else bonusWrap.classList.remove('bonus-available');
   }
   // check for game over condition after HUD changes
   checkGameOver();
@@ -624,7 +583,7 @@ document.addEventListener('click', (ev)=>{
 
 function resetGame(){
   // clear runtime state
-  marked.clear(); scoredLines.length = 0; score = 0; bonus = 0; awaitingBonusSecond = false; firstPlacement = null;
+  marked.clear(); scoredLines.length = 0; score = 0; bonus = 0; provisionalPlacements.length = 0;
   // reapply the original start pattern used on load
   const userCoords = [
     '14,10','15,10','16,10','17,10','17,11','17,12','17,13','18,13','19,13','20,13','20,14','20,15','20,16','19,16','18,16','17,16','17,17','17,18','17,19','16,19','15,19','14,19','14,18','14,17','14,16','13,16','12,16','11,16','11,15','11,14','11,13','12,13','13,13','14,13','14,12','14,11'
