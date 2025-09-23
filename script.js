@@ -27,6 +27,7 @@ let hover = null; // {x,y} in CSS pixels for preview (not used for line preview)
 let previewSegments = null; // {seg, dir} when a hover would create 5-in-a-row
 let previewDot = null; // {col,row,type} type = 'win'|'bonus'
 let previewHover = null; // {col,row} last hovered grid cell (for preview dot)
+let lastCursor = {x:0,y:0}; // last client coords for cursor-positioned UI
 // anti-tamper & input protections
 let tampered = false;
 let originalHashes = {};
@@ -123,6 +124,24 @@ function drawFullGrid({cell=40, dot=6} = {}){
       const cy = gridToCssY(row);
       if (previewSegments && previewSegments.length){ drawPreviewDot(cx, cy, 'rgba(0,160,60,0.9)', Math.max(4, cs*0.12)); }
       else if (bonus > 0 && !awaitingBonusSecond){ drawPreviewDot(cx, cy, 'rgba(255,140,0,0.9)', Math.max(4, cs*0.12)); }
+    }
+  }
+
+  // draw bonus indicator near cursor when appropriate
+  if (bonus > 0 && !awaitingBonusSecond){
+    // only show when hovering over empty intersection and no winning preview
+    if (previewHover && !isOccupied(previewHover.col, previewHover.row) && !(previewSegments && previewSegments.length)){
+      // convert lastCursor client coords to CSS canvas coords
+      const rect = canvas.getBoundingClientRect();
+      const cx = lastCursor.x - rect.left + 12; // slight offset to right
+      const cy = lastCursor.y - rect.top + 12; // slight offset down
+      // draw small orange circle and label
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,140,0,0.95)';
+      ctx.beginPath(); ctx.arc(cx, cy, Math.max(6, cellSize()*0.06), 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.font = '12px sans-serif'; ctx.textBaseline = 'top';
+      ctx.fillText('käytä bonuspiste', cx + 12, cy - 6);
+      ctx.restore();
     }
   }
 
@@ -709,7 +728,8 @@ window.addEventListener('load', () => {
   canvas.addEventListener('click', (ev) => { handleGridClick(ev.clientX, ev.clientY); });
   // mousemove preview
   canvas.addEventListener('mousemove', (ev) => {
-    setPreviewAt(ev.clientX, ev.clientY);
+  lastCursor.x = ev.clientX; lastCursor.y = ev.clientY;
+  setPreviewAt(ev.clientX, ev.clientY);
     drawFullGrid();
   });
   canvas.addEventListener('mouseleave', () => { clearAllPreview(); drawFullGrid(); });
@@ -750,7 +770,9 @@ window.addEventListener('load', () => {
       offsetY = midy - ((midy - touchState.oy) * (newScale / touchState.scale0));
       scale = newScale; drawFullGrid();
     }
-    ev.preventDefault();
+  // update lastCursor to the first touch for UI hints
+  if (ev.touches && ev.touches[0]){ lastCursor.x = ev.touches[0].clientX; lastCursor.y = ev.touches[0].clientY; }
+  ev.preventDefault();
   }, {passive:false});
   canvas.addEventListener('touchend', (ev)=>{ touchState = null; }, {passive:false});
   // record original hashes for basic anti-tamper
