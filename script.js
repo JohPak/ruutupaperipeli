@@ -103,11 +103,9 @@ function drawFullGrid({cell=40, dot=6} = {}){
       ctx.fillStyle = 'rgba(255,140,0,0.95)';
       ctx.beginPath(); ctx.arc(cx, cy, Math.max(4, Math.round(cs * 0.12)), 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#000'; continue;
     }
-    // draw plus-shaped dot scaled with cell size
-    const armPx = Math.max(1, Math.round(Math.min(10, cs * 0.12)));
-    const dotPx = Math.max(4, Math.round(Math.min(16, cs * 0.3)));
-    ctx.fillRect(Math.round(cx - armPx/2), Math.round(cy - dotPx/2), Math.round(armPx), Math.round(dotPx));
-    ctx.fillRect(Math.round(cx - dotPx/2), Math.round(cy - armPx/2), Math.round(dotPx), Math.round(armPx));
+  // draw small anti-aliased filled circle for marker (crisp at small scales)
+  const r = Math.max(2, Math.min(6, Math.round(cs * 0.08)));
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
   }
 
   // draw any persistent scored lines (thin, centered on intersections)
