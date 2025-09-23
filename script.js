@@ -135,13 +135,11 @@ function drawFullGrid({cell=40, dot=6} = {}){
       const rect = canvas.getBoundingClientRect();
       const cx = lastCursor.x - rect.left + 12; // slight offset to right
       const cy = lastCursor.y - rect.top + 12; // slight offset down
-      // draw small orange circle and label
-      ctx.save();
-      ctx.fillStyle = 'rgba(255,140,0,0.95)';
-      ctx.beginPath(); ctx.arc(cx, cy, Math.max(6, cellSize()*0.06), 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.font = '12px sans-serif'; ctx.textBaseline = 'top';
-      ctx.fillText('käytä bonuspiste', cx + 12, cy - 6);
-      ctx.restore();
+  // draw only the label (the grid preview dot already indicates a bonus)
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.font = '12px sans-serif'; ctx.textBaseline = 'top';
+  ctx.fillText('käytä bonuspiste', cx, cy - 6);
+  ctx.restore();
     }
   }
 
